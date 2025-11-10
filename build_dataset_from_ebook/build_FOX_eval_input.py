@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""Assemble evaluation JSON for focus_benchmark_test/eval_tools/eval_ocr_test.py.
+
+The script scans rendered Pride & Prejudice block images, aligns each image
+with its ground-truth text from ``pride_blocks_experiment/pride_blocks_gt.json``
+and the corresponding prediction stored as a Markdown file under
+``pride_blocks_experiment_pred/640``. The resulting list of
+``{"id", "label", "answer"}`` dictionaries can be fed directly into
+``eval_ocr_test.py``.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+from pathlib import Path
+from typing import Dict, List
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build OCR eval JSON input.")
+    parser.add_argument(
+        "--images_dir",
+        type=Path,
+        default=Path("pride_blocks_experiment/images"),
+        help="Directory containing JPG images to evaluate.",
+    )
+    parser.add_argument(
+        "--metadata",
+        type=Path,
+        default=Path("pride_blocks_experiment/pride_prejudice_blocks_gt.json"),
+        help="JSON file with image->ground truth mappings.",
+    )
+    parser.add_argument(
+        "--predictions_dir",
+        type=Path,
+        default=Path("pride_blocks_experiment_pred/640"),
+        help="Directory containing prediction .md files.",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("tmp_eval.json"),
+        help="Destination JSON for eval_ocr_test.py.",
+    )
+    return parser.parse_args()
+
+
+def load_metadata(path: Path) -> Dict[str, str]:
+    if not path.exists():
+        fallback = path.parent / "pride_prejudice_blocks_gt.json"
+        if fallback.exists():
+            path = fallback
+        else:
+            raise FileNotFoundError(f"Metadata not found at {path}")
+    records = json.loads(path.read_text(encoding="utf-8"))
+    mapping = {}
+    for record in records:
+        image_name = record.get("image")
+        text = record.get("gt")
+        if not image_name or text is None:
+            continue
+        mapping[str(image_name)] = str(text)
+    return mapping
+
+
+def md_to_text(md_path: Path) -> str:
+    raw = md_path.read_text(encoding="utf-8")
+    # Remove image/link syntax.
+    text = re.sub(r"!\[[^\]]*\]\([^)]+\)", " ", raw)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    lines: List[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        stripped = re.sub(r"^[#>*\-\d\.\)\(]+\s*", "", stripped)
+        lines.append(stripped)
+    return " ".join(lines).strip()
+
+
+def main() -> None:
+    args = parse_args()
+    metadata = load_metadata(args.metadata)
+    if not metadata:
+        raise RuntimeError("Metadata file contained no valid entries.")
+
+    records: List[dict] = []
+    missing_gt = []
+    missing_pred = []
+
+    for image_path in sorted(args.images_dir.glob("*.jpg")):
+        image_name = image_path.name
+        image_id = image_path.stem
+
+        gt_text = metadata.get(image_name)
+        if gt_text is None:
+            missing_gt.append(image_name)
+            continue
+
+        pred_path = args.predictions_dir / f"{image_id}.md"
+        if not pred_path.exists():
+            missing_pred.append(pred_path)
+            continue
+
+        pred_text = md_to_text(pred_path)
+        records.append(
+            {
+                "id": image_id,
+                "label": gt_text,
+                "answer": pred_text,
+            }
+        )
+
+    if missing_gt:
+        print(f"[warn] Missing GT for {len(missing_gt)} images: {missing_gt[:5]} ...")
+    if missing_pred:
+        print(
+            f"[warn] Missing predictions for {len(missing_pred)} images: "
+            f"{[p.name for p in missing_pred[:5]]} ..."
+        )
+    if not records:
+        raise RuntimeError("No eval records were generated. Check inputs.")
+
+    args.output.write_text(
+        json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(f"Wrote {len(records)} eval entries to {args.output}")
+
+
+if __name__ == "__main__":
+    main()
