@@ -15,39 +15,18 @@ import argparse
 import json
 import re
 from pathlib import Path
-from typing import Dict, List
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build OCR eval JSON input.")
-    parser.add_argument(
-        "--images_dir",
-        type=Path,
-        default=Path("pride_blocks_experiment/images"),
-        help="Directory containing JPG images to evaluate.",
-    )
-    parser.add_argument(
-        "--metadata",
-        type=Path,
-        default=Path("pride_blocks_experiment/pride_prejudice_blocks_gt.json"),
-        help="JSON file with image->ground truth mappings.",
-    )
-    parser.add_argument(
-        "--predictions_dir",
-        type=Path,
-        default=Path("pride_blocks_experiment_pred/640"),
-        help="Directory containing prediction .md files.",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=Path("tmp_eval.json"),
-        help="Destination JSON for eval_ocr_test.py.",
-    )
+    parser.add_argument("--images_dir", type=Path, default=Path("focus_benchmark_test/demo_test"), help="Directory containing JPG images to evaluate.")
+    parser.add_argument("--metadata_path", type=Path, default=Path("build_dataset_from_ebook/pride_dataset/pride_prejudice_blocks_gt.json"), help="JSON file with image->ground truth mappings.")
+    parser.add_argument("--predictions_dir", type=Path, default=Path("focus_benchmark_test/demo_pred"), help="Directory containing prediction .md files.")
+    parser.add_argument("--output_path", type=Path, default=Path("tmp_eval.json"), help="Destination JSON for eval_ocr_test.py.")
     return parser.parse_args()
 
 
-def load_metadata(path: Path) -> Dict[str, str]:
+def load_metadata(path: Path) -> dict[str, str]:
     if not path.exists():
         fallback = path.parent / "pride_prejudice_blocks_gt.json"
         if fallback.exists():
@@ -70,7 +49,7 @@ def md_to_text(md_path: Path) -> str:
     # Remove image/link syntax.
     text = re.sub(r"!\[[^\]]*\]\([^)]+\)", " ", raw)
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
-    lines: List[str] = []
+    lines: list[str] = []
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped:
@@ -82,11 +61,11 @@ def md_to_text(md_path: Path) -> str:
 
 def main() -> None:
     args = parse_args()
-    metadata = load_metadata(args.metadata)
+    metadata = load_metadata(args.metadata_path)
     if not metadata:
         raise RuntimeError("Metadata file contained no valid entries.")
 
-    records: List[dict] = []
+    records: list[dict] = []
     missing_gt = []
     missing_pred = []
 
@@ -123,10 +102,10 @@ def main() -> None:
     if not records:
         raise RuntimeError("No eval records were generated. Check inputs.")
 
-    args.output.write_text(
+    args.output_path.write_text(
         json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    print(f"Wrote {len(records)} eval entries to {args.output}")
+    print(f"Wrote {len(records)} eval entries to {args.output_path}")
 
 
 if __name__ == "__main__":

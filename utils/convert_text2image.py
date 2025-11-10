@@ -7,8 +7,8 @@ import argparse
 import json
 import textwrap
 from collections import defaultdict
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -18,50 +18,14 @@ DEFAULT_PADDING = 40
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Render dataset blocks into text images grouped by page_id."
-    )
-    parser.add_argument(
-        "--input",
-        type=Path,
-        default=Path("pride_and_prejudice_dataset.json"),
-        help="Path to the JSON dataset produced by create_dataset_from_ebook.py.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path("pride_pages"),
-        help="Directory where generated images are stored.",
-    )
-    parser.add_argument(
-        "--font-path",
-        type=Path,
-        default=None,
-        help="Optional path to a .ttf/.otf font. Falls back to PIL default font.",
-    )
-    parser.add_argument(
-        "--font-size",
-        type=int,
-        default=DEFAULT_FONT_SIZE,
-        help="Font size for rendered text.",
-    )
-    parser.add_argument(
-        "--line-width",
-        type=int,
-        default=DEFAULT_LINE_WIDTH,
-        help="Approximate number of characters per line before wrapping.",
-    )
-    parser.add_argument(
-        "--padding",
-        type=int,
-        default=DEFAULT_PADDING,
-        help="Padding (in pixels) around the text area.",
-    )
-    parser.add_argument(
-        "--book-name",
-        default=None,
-        help="Optional book_name filter. Only records matching this value are rendered.",
-    )
+    parser = argparse.ArgumentParser(description="Render dataset blocks into text images grouped by page_id.")
+    parser.add_argument("--input", type=Path, default=Path("pride_and_prejudice_dataset.json"), help="Path to the JSON dataset produced by build_pride_dataset.py.")
+    parser.add_argument("--output_dir", type=Path, default=Path("pride_pages"), help="Directory where generated images are stored.")
+    parser.add_argument("--font_path", type=Path, default=None, help="Optional path to a .ttf/.otf font. Falls back to PIL default font.")
+    parser.add_argument("--font_size", type=int, default=DEFAULT_FONT_SIZE, help="Font size for rendered text.")
+    parser.add_argument("--line_width", type=int, default=DEFAULT_LINE_WIDTH, help="Approximate number of characters per line before wrapping.")
+    parser.add_argument("--padding", type=int, default=DEFAULT_PADDING, help="Padding (in pixels) around the text area.")
+    parser.add_argument("--book_name", default=None, help="Optional book_name filter. Only records matching this value are rendered.")
     return parser.parse_args()
 
 
@@ -74,8 +38,8 @@ def load_dataset(path: Path) -> Sequence[dict]:
 
 def group_blocks_by_page(
     records: Iterable[dict], book_filter: str | None = None
-) -> Dict[str, List[str]]:
-    grouped: Dict[str, List[str]] = defaultdict(list)
+) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = defaultdict(list)
     for record in records:
         if book_filter and record.get("book_name") != book_filter:
             continue
@@ -98,8 +62,8 @@ def load_font(font_path: Path | None, font_size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.truetype(str(font_path), font_size)
 
 
-def wrap_text_to_lines(text: str, width: int) -> List[str]:
-    lines: List[str] = []
+def wrap_text_to_lines(text: str, width: int) -> list[str]:
+    lines: list[str] = []
     for paragraph in text.split("\n"):
         paragraph = paragraph.strip()
         if not paragraph:

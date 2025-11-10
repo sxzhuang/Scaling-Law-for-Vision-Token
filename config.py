@@ -21,9 +21,10 @@ MODEL_PATH = 'deepseek-ai/DeepSeek-OCR' # change to your model path
 # .jpg, .png, .jpeg: run_dpsk_ocr_image.py; 
 # Omnidocbench images path: run_dpsk_ocr_eval_batch.py
 
-INPUT_PATH = 'pride_blocks_experiment/images/' 
+# INPUT_PATH = 'pride_blocks_experiment/images/' 
+INPUT_PATH = 'focus_benchmark_test/demo_test/' 
 # INPUT_PATH = 'OmniDocBench/images/color_textbook_zhonggaokao_小学_13.人教新起点英语（4-5年级）_人教新起点五年级英语上册_课本_人教新起点英语5A电子课本_page_008.png' 
-OUTPUT_PATH = 'pride_blocks_experiment_pred/640/'
+OUTPUT_PATH = 'focus_benchmark_test/demo_pred/'
 
 # PROMPT = '<image>\n<|grounding|>Convert the document to markdown.'
 PROMPT = '<image>\nFree OCR.'

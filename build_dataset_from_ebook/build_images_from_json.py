@@ -2,15 +2,11 @@
 """Generate randomized Pride & Prejudice block images via PDF conversion.
 
 Workflow:
-1. Parse chapters from a plain-text ebook (lines beginning with ``CHAPTER``).
-2. Split each chapter into four sentence-aligned blocks.
-3. Randomly sample block groups of different sizes (1, 2, 3, 4 blocks).
-4. Render each group into a tightly padded PDF, then convert to JPG.
-5. Record each group's ground-truth text alongside the corresponding image.
+1. Load pre-chunked blocks from the JSON dataset produced by build_json_from_txt.py.
+2. Randomly sample block groups of different sizes (1, 2, 3, 4 blocks).
+3. Render each group into a tightly padded PDF, then convert to JPG.
+4. Record each group's ground-truth text alongside the corresponding image.
 
-Dependencies: Pillow, pdf2image, and a working Poppler installation for
-pdf2image. Install via:
-    pip install pillow pdf2image
 """
 
 from __future__ import annotations
@@ -21,16 +17,13 @@ import math
 import random
 import re
 import textwrap
-from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
 
-CHAPTER_PATTERN = re.compile(r"^\s*CHAPTER\s+([A-Z0-9]+)[^\r\n]*", re.MULTILINE)
-SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[.!?])\s+")
+WRAP_WIDTH_BY_BLOCKS = {1: 70, 2: 120, 3: 200, 4: 220}
 
 
 @dataclass(frozen=True)
@@ -40,180 +33,51 @@ class Block:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Sample chapter blocks, create PDFs, and convert them to JPGs."
-    )
-    parser.add_argument(
-        "--input",
-        type=Path,
-        default=Path("pride-and-prejudice.txt"),
-        help="Path to the Pride and Prejudice plain-text file.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path("pride_blocks_experiment"),
-        help="Directory where PDFs, JPGs, and metadata JSON are stored.",
-    )
-    parser.add_argument(
-        "--font-path",
-        type=Path,
-        default=None,
-        help="Optional path to a TTF/OTF font file. Defaults to DejaVuSans or PIL font.",
-    )
-    parser.add_argument(
-        "--font-size",
-        type=int,
-        default=28,
-        help="Font size for rendered text.",
-    )
-    parser.add_argument(
-        "--wrap-width",
-        type=int,
-        default=60,
-        help="Approximate character count per line before wrapping.",
-    )
-    parser.add_argument(
-        "--padding",
-        type=int,
-        default=20,
-        help="Pixel padding around rendered text.",
-    )
-    parser.add_argument(
-        "--dpi",
-        type=int,
-        default=300,
-        help="DPI used when converting PDFs to JPGs.",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=42,
-        help="Random seed for reproducible sampling.",
-    )
-    parser.add_argument(
-        "--single-count",
-        type=int,
-        default=100,
-        help="Number of single-block samples.",
-    )
-    parser.add_argument(
-        "--double-count",
-        type=int,
-        default=200,
-        help="Number of double-block samples.",
-    )
-    parser.add_argument(
-        "--triple-count",
-        type=int,
-        default=200,
-        help="Number of triple-block samples.",
-    )
-    parser.add_argument(
-        "--quadruple-count",
-        type=int,
-        default=300,
-        help="Number of quadruple-block samples.",
-    )
+    parser = argparse.ArgumentParser(description="Sample dataset blocks, create PDFs, and convert them to JPGs.")
+    parser.add_argument("--dataset", type=Path, default=Path("build_dataset_from_ebook/src_book/pride_and_prejudice_dataset.json"), help="Path to the JSON dataset produced by build_json_from_txt.py.")
+    parser.add_argument("--output_dir", type=Path, default=Path("build_dataset_from_ebook/pride_dataset/"), help="Directory where PDFs, JPGs, and metadata JSON are stored.")
+    parser.add_argument("--font_path", type=Path, default=None, help="Optional path to a TTF/OTF font file. Defaults to DejaVuSans or PIL font.")
+    parser.add_argument("--font_size", type=int, default=28, help="Font size for rendered text.")
+    parser.add_argument("--wrap_width", type=int, default=60, help="Fallback character count per line when no preset applies.")
+    parser.add_argument("--padding", type=int, default=20, help="Pixel padding around rendered text.")
+    parser.add_argument("--dpi", type=int, default=300, help="DPI used when converting PDFs to JPGs.")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducible sampling.")
+    parser.add_argument("--single_count", type=int, default=100, help="Number of single-block samples.")
+    parser.add_argument("--double_count", type=int, default=200, help="Number of double-block samples.")
+    parser.add_argument("--triple_count", type=int, default=200, help="Number of triple-block samples.")
+    parser.add_argument("--quadruple_count", type=int, default=300, help="Number of quadruple-block samples.")
     return parser.parse_args()
 
 
-def load_text(path: Path) -> str:
-    text = path.read_text(encoding="utf-8")
-    return text.replace("\\ufeff", "")
+def load_blocks_from_dataset(path: Path) -> list[Block]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise ValueError("Dataset JSON must contain a list of records.")
 
-
-def extract_chapters(text: str) -> List[tuple[str, str]]:
-    matches = list(CHAPTER_PATTERN.finditer(text))
-    chapters: List[tuple[str, str]] = []
-    for idx, match in enumerate(matches):
-        start = match.end()
-        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
-        body = text[start:end].strip()
-        page_id = match.group(1).strip(". ")
-        if not body:
+    blocks: list[Block] = []
+    for record in data:
+        page_id = str(record.get("page_id", "")).strip()
+        if not page_id:
             continue
-        chapters.append((page_id, body))
-    return chapters
-
-
-def normalize_paragraph(text: str) -> str:
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
-
-
-def split_sentences(paragraph: str) -> List[str]:
-    if not paragraph:
-        return []
-    sentences = SENTENCE_SPLIT_PATTERN.split(paragraph)
-    return [sentence.strip() for sentence in sentences if sentence.strip()]
-
-
-def chunk_sentences(sentences: Sequence[str], block_count: int) -> List[str]:
-    if block_count <= 0:
-        raise ValueError("block_count must be greater than zero.")
-    if not sentences:
-        return [""] * block_count
-
-    total_len = sum(len(sentence) for sentence in sentences)
-    target_len = total_len / block_count
-
-    blocks: List[str] = []
-    current: List[str] = []
-    current_len = 0
-
-    for idx, sentence in enumerate(sentences):
-        current.append(sentence)
-        current_len += len(sentence)
-
-        remaining_sentences = len(sentences) - idx - 1
-        remaining_blocks = block_count - len(blocks) - 1
-        must_split = remaining_blocks > 0 and remaining_sentences == remaining_blocks
-        should_split = (
-            remaining_blocks > 0
-            and remaining_sentences > remaining_blocks
-            and current_len >= target_len
+        block_keys = sorted(
+            (key for key in record.keys() if key.startswith("block")),
+            key=lambda k: int(k[5:]) if k[5:].isdigit() else k,
         )
-        if must_split or should_split:
-            blocks.append(" ".join(current).strip())
-            current = []
-            current_len = 0
-
-    blocks.append(" ".join(current).strip())
-
-    if len(blocks) < block_count:
-        blocks.extend([""] * (block_count - len(blocks)))
-    elif len(blocks) > block_count:
-        tail = " ".join(blocks[block_count - 1 :]).strip()
-        blocks = blocks[: block_count - 1]
-        blocks.append(tail)
-    return blocks
-
-
-def create_blocks(
-    chapters: Sequence[Tuple[str, str]], block_count: int = 4
-) -> List[Block]:
-    blocks: List[Block] = []
-    for page_id, raw_body in chapters:
-        normalized = normalize_paragraph(raw_body)
-        sentences = split_sentences(normalized)
-        chunked = chunk_sentences(sentences, block_count)
-        for idx, text in enumerate(chunked, start=1):
-            cleaned = text.strip()
-            if not cleaned:
+        for key in block_keys:
+            text = str(record.get(key, "")).strip()
+            if not text:
                 continue
-            key = f"{page_id}_block{idx}"
-            blocks.append(Block(key=key, text=cleaned))
+            blocks.append(Block(key=f"{page_id}_{key}", text=text))
     return blocks
 
 
-def wrap_text(text: str, width: int) -> List[str]:
+def wrap_text(text: str, width: int) -> list[str]:
     text = text.replace("\\n", " ").strip()
     paragraphs = [p.strip() for p in re.split(r"\\s{2,}", text) if p.strip()]
     if not paragraphs:
         paragraphs = [text]
 
-    lines: List[str] = []
+    lines: list[str] = []
     for paragraph in paragraphs:
         wrapped = textwrap.wrap(paragraph, width=width)
         lines.extend(wrapped or [""])
@@ -304,7 +168,7 @@ def render_text_image(
     return image
 
 
-def ensure_output_dirs(base_dir: Path) -> Dict[str, Path]:
+def ensure_output_dirs(base_dir: Path) -> dict[str, Path]:
     pdf_dir = base_dir / "pdf"
     jpg_dir = base_dir / "images"
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -313,19 +177,13 @@ def ensure_output_dirs(base_dir: Path) -> Dict[str, Path]:
     return {"base": base_dir, "pdf": pdf_dir, "jpg": jpg_dir}
 
 
-def unique_suffix(rng: random.Random) -> str:
-    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
-    extra = rng.randint(0, 99999)
-    return f"{timestamp}_{extra:05d}"
-
-
 def sample_unique_groups(
     indices: Sequence[int], group_size: int, count: int, rng: random.Random
-) -> List[Tuple[int, ...]]:
+) -> list[tuple[int, ...]]:
     if group_size > len(indices):
         raise ValueError("group_size cannot exceed number of available blocks.")
-    seen: set[Tuple[int, ...]] = set()
-    groups: List[Tuple[int, ...]] = []
+    seen: set[tuple[int, ...]] = set()
+    groups: list[tuple[int, ...]] = []
     available = list(indices)
     max_attempts = count * 20
     attempts = 0
@@ -381,28 +239,38 @@ def save_pdf_and_jpg(
     rgb_image.save(jpg_path, "JPEG", quality=95, dpi=(dpi, dpi))
 
 
+def block_code(block: Block) -> str:
+    match = re.match(r"(?P<chapter>.+?)_block(?P<idx>\d+)$", block.key)
+    if not match:
+        raise ValueError(f"Unexpected block key format: {block.key}")
+    chapter = re.sub(r"[^0-9A-Za-z]+", "", match.group("chapter")) or "X"
+    block_idx = match.group("idx")
+    return f"C{chapter}B{block_idx}"
+
+
 def process_groups(
     label: str,
-    groups: Sequence[Tuple[int, ...]],
+    groups: Sequence[tuple[int, ...]],
     blocks: Sequence[Block],
     font: ImageFont.ImageFont,
-    dirs: Dict[str, Path],
+    dirs: dict[str, Path],
     wrap_width: int,
     padding: int,
     dpi: int,
-    rng: random.Random,
-) -> List[dict]:
-    records: List[dict] = []
+) -> list[dict]:
+    records: list[dict] = []
     for combo in groups:
         combined_text = " ".join(blocks[idx].text for idx in combo)
-        suffix = unique_suffix(rng)
-        base_name = f"pride_prejudice_{label}_block_{suffix}"
+        codes = [block_code(blocks[idx]) for idx in combo]
+        base_name = f"pride_prejudice_{label}_{'_'.join(codes)}"
+        block_count = len(combo)
+        dynamic_wrap = WRAP_WIDTH_BY_BLOCKS.get(block_count, wrap_width)
         pdf_path = dirs["pdf"] / f"{base_name}.pdf"
         jpg_path = dirs["jpg"] / f"{base_name}.jpg"
         image = render_text_image(
             combined_text,
             font=font,
-            wrap_width=wrap_width,
+            wrap_width=dynamic_wrap,
             padding=padding,
         )
         save_pdf_and_jpg(image, pdf_path, jpg_path, dpi=dpi)
@@ -414,13 +282,9 @@ def main() -> None:
     args = parse_args()
     rng = random.Random(args.seed)
 
-    text = load_text(args.input)
-    chapters = extract_chapters(text)
-    if not chapters:
-        raise RuntimeError("No chapters found. Ensure the text contains 'CHAPTER' headings.")
-    blocks = create_blocks(chapters, block_count=4)
+    blocks = load_blocks_from_dataset(args.dataset)
     if not blocks:
-        raise RuntimeError("No non-empty blocks extracted from the text.")
+        raise RuntimeError("No non-empty blocks found in the dataset.")
 
     dirs = ensure_output_dirs(args.output_dir)
     font = load_font(args.font_path, args.font_size)
@@ -433,7 +297,7 @@ def main() -> None:
         ("quadruple", 4, args.quadruple_count),
     ]
 
-    metadata: List[dict] = []
+    metadata: list[dict] = []
     for label, size, count in sampling_plan:
         if count <= 0:
             continue
@@ -455,7 +319,6 @@ def main() -> None:
                 wrap_width=args.wrap_width,
                 padding=args.padding,
                 dpi=args.dpi,
-                rng=rng,
             )
         )
 

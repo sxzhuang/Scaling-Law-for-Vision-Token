@@ -13,40 +13,21 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from collections.abc import Sequence
 from pathlib import Path
-from typing import List, Sequence
 
 CHAPTER_PATTERN = re.compile(r"^\s*CHAPTER\s+([A-Z0-9]+)[^\r\n]*", re.MULTILINE)
 SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[.!?])\s+")
+ROMAN_PATTERN = re.compile(r"^[IVXLCDM]+$", re.I)
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Split pride-and-prejudice.txt into chapter blocks."
-    )
-    parser.add_argument(
-        "--input",
-        type=Path,
-        default=Path("pride-and-prejudice.txt"),
-        help="Path to the source ebook text file.",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=Path("pride_and_prejudice_dataset.json"),
-        help="Destination JSON file for the generated dataset.",
-    )
-    parser.add_argument(
-        "--book-name",
-        default="pride_and_prejudice",
-        help='Book identifier stored under the "book_name" field.',
-    )
-    parser.add_argument(
-        "--blocks",
-        type=int,
-        default=4,
-        help="Number of sentence-aligned blocks per chapter.",
-    )
+    parser = argparse.ArgumentParser(description="Split pride-and-prejudice.txt into chapter blocks.")
+
+    parser.add_argument("--input", type=Path, default=Path("build_dataset_from_ebook/src_book/pride-and-prejudice.txt"), help="Path to the source ebook text file.")
+    parser.add_argument("--output", type=Path, default=Path("build_dataset_from_ebook/src_book/pride_and_prejudice_dataset.json"), help="Destination JSON file for the generated dataset.")
+    parser.add_argument("--book_name", default="pride_and_prejudice", help='Book identifier stored under the "book_name" field.')
+    parser.add_argument("--blocks", type=int, default=4, help="Number of sentence-aligned blocks per chapter.")
     return parser.parse_args()
 
 
@@ -55,14 +36,29 @@ def load_text(path: Path) -> str:
     return text.replace("\ufeff", "")
 
 
-def extract_chapters(text: str) -> List[tuple[str, str]]:
+def roman_to_int(value: str) -> str:
+    mapping = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+    total = 0
+    prev = 0
+    for ch in reversed(value.upper()):
+        val = mapping[ch]
+        if val < prev:
+            total -= val
+        else:
+            total += val
+            prev = val
+    return str(total)
+
+
+def extract_chapters(text: str) -> list[tuple[str, str]]:
     matches = list(CHAPTER_PATTERN.finditer(text))
-    chapters: List[tuple[str, str]] = []
+    chapters: list[tuple[str, str]] = []
     for idx, match in enumerate(matches):
         start = match.end()
         end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
         body = text[start:end].strip()
-        page_id = match.group(1).strip(". ")
+        page_id_raw = match.group(1).strip(". ")
+        page_id = roman_to_int(page_id_raw) if ROMAN_PATTERN.fullmatch(page_id_raw) else page_id_raw
         if not body:
             continue
         chapters.append((page_id, body))
@@ -74,14 +70,14 @@ def normalize_paragraph(text: str) -> str:
     return text.strip()
 
 
-def split_sentences(paragraph: str) -> List[str]:
+def split_sentences(paragraph: str) -> list[str]:
     if not paragraph:
         return []
     sentences = SENTENCE_SPLIT_PATTERN.split(paragraph)
     return [sentence.strip() for sentence in sentences if sentence.strip()]
 
 
-def chunk_sentences(sentences: Sequence[str], block_count: int) -> List[str]:
+def chunk_sentences(sentences: Sequence[str], block_count: int) -> list[str]:
     if block_count <= 0:
         raise ValueError("block_count must be greater than zero.")
     if not sentences:
@@ -90,8 +86,8 @@ def chunk_sentences(sentences: Sequence[str], block_count: int) -> List[str]:
     total_len = sum(len(sentence) for sentence in sentences)
     target_len = total_len / block_count
 
-    blocks: List[str] = []
-    current: List[str] = []
+    blocks: list[str] = []
+    current: list[str] = []
     current_len = 0
 
     for idx, sentence in enumerate(sentences):
@@ -124,8 +120,8 @@ def chunk_sentences(sentences: Sequence[str], block_count: int) -> List[str]:
 
 def build_dataset(
     chapters: Sequence[tuple[str, str]], block_count: int, book_name: str
-) -> List[dict]:
-    dataset: List[dict] = []
+) -> list[dict]:
+    dataset: list[dict] = []
     for page_id, raw_body in chapters:
         normalized = normalize_paragraph(raw_body)
         sentences = split_sentences(normalized)
