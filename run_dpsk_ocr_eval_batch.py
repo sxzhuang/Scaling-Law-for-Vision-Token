@@ -7,7 +7,20 @@ if torch.version.cuda == '11.8':
 os.environ['VLLM_USE_V1'] = '0'
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
+import config
+import argparse
+parser = argparse.ArgumentParser(description="Run DeepSeek OCR batch job.")
+parser.add_argument("--base_size", type=int, help="Override BASE_SIZE from config.")
+parser.add_argument("--image_size", type=int, help="Override IMAGE_SIZE from config.")
+parser.add_argument("--input_path", type=str, help="Directory containing input images.")
+parser.add_argument("--output_path", type=str, help="Directory to store OCR predictions.")
+args = parser.parse_args()
+config.BASE_SIZE = args.base_size
+config.IMAGE_SIZE = args.image_size
+config.INPUT_PATH = args.input_path
+config.OUTPUT_PATH = args.output_path
 from config import MODEL_PATH, INPUT_PATH, OUTPUT_PATH, PROMPT, MAX_CONCURRENCY, CROP_MODE, NUM_WORKERS
+
 from concurrent.futures import ThreadPoolExecutor
 import glob
 from PIL import Image
