@@ -1,6 +1,7 @@
+import argparse
 import json
 from pathlib import Path
-from typing import Dict, List
+from typing import List
 
 from transformers import AutoTokenizer
 
@@ -10,52 +11,35 @@ def load_records(json_path: Path) -> List[dict]:
         return json.load(fp)
 
 
-def build_image_index(records: List[dict]) -> Dict[str, List[int]]:
-    index: Dict[str, List[int]] = {}
-    for idx, record in enumerate(records):
-        image_name = record.get("page_info", {}).get("image_path")
-        if image_name:
-            index.setdefault(image_name, []).append(idx)
-    return index
+def compute_text_token_len(text: str, tokenizer: AutoTokenizer) -> int:
+    if not text:
+        return 0
+    tokens = tokenizer(text, add_special_tokens=True, truncation=False)
+    return len(tokens.get("input_ids", []))
 
 
-def compute_token_length(blocks: List[dict], tokenizer: AutoTokenizer) -> int:
-    total = 0
-    for block in blocks:
-        text = block.get("text")
-        if not text:
-            continue
-        tokens = tokenizer(text, add_special_tokens=True, truncation=False)
-        total += len(tokens.get("input_ids", []))
-    return total
+def add_token_lengths(records: List[dict], tokenizer: AutoTokenizer) -> None:
+    for record in records:
+        text = record.get("gt", "")
+        record["text_token_len"] = compute_text_token_len(text, tokenizer)
 
 
 def main() -> None:
-    images_dir = Path("craft_dataset/image")
-    json_path = Path("craft_dataset/CraftData.json")
+    parser = argparse.ArgumentParser(description="Compute token lengths for GT text fields.")
+    parser.add_argument("--json_path", type=str, default=None, 
+                        help="Path to the JSON file (e.g., pride_prejudice_blocks_gt.json).")
+    parser.add_argument("--tokenizer_name", type=str, default="Qwen/Qwen2.5-0.5B-Instruct",
+                        help="Tokenizer identifier to use for token counting.")
+    args = parser.parse_args()
 
-    if not images_dir.exists():
-        raise FileNotFoundError(f"Images directory not found: {images_dir}")
+    json_path = Path(args.json_path)
     if not json_path.exists():
-        raise FileNotFoundError(f"CraftData JSON not found: {json_path}")
+        raise FileNotFoundError(f"JSON file not found: {json_path}")
 
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct")
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name)
 
     records = load_records(json_path)
-    image_index = build_image_index(records)
-
-    for image_path in sorted(images_dir.iterdir()):
-        if not image_path.is_file():
-            continue
-        record_indices = image_index.get(image_path.name)
-        if not record_indices:
-            continue
-        for idx in record_indices:
-            record = records[idx]
-            layout_dets = record.get("layout_dets", [])
-            token_length = compute_token_length(layout_dets, tokenizer)
-            page_info = record.setdefault("page_info", {})
-            page_info["text_token_length"] = token_length
+    add_token_lengths(records, tokenizer)
 
     with json_path.open("w", encoding="utf-8") as fp:
         json.dump(records, fp, ensure_ascii=False, indent=2)

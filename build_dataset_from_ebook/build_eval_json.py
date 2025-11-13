@@ -13,9 +13,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import math
 import re
 from pathlib import Path
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build OCR eval JSON input.")
@@ -26,7 +30,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_metadata(path: Path) -> dict[str, str]:
+def load_metadata(path: Path) -> dict[str, dict]:
     if not path.exists():
         fallback = path.parent / "pride_prejudice_blocks_gt.json"
         if fallback.exists():
@@ -38,9 +42,13 @@ def load_metadata(path: Path) -> dict[str, str]:
     for record in records:
         image_name = record.get("image")
         text = record.get("gt")
+        token_len = record.get("text_token_len")
         if not image_name or text is None:
             continue
-        mapping[str(image_name)] = str(text)
+        mapping[str(image_name)] = {
+            "gt": str(text),
+            "text_token_len": token_len,
+        }
     return mapping
 
 
@@ -69,14 +77,22 @@ def main() -> None:
     missing_gt = []
     missing_pred = []
 
-    for image_path in sorted(args.images_dir.glob("*.jpg")):
+    image_paths = sorted(args.images_dir.glob("*.jpg"))
+    total = len(image_paths)
+    if total == 0:
+        raise RuntimeError("No JPG images found under the specified images_dir.")
+    checkpoints = sorted({min(total, math.ceil(total * i / 4)) for i in range(1, 5)})
+
+    for idx, image_path in enumerate(image_paths, start=1):
         image_name = image_path.name
         image_id = image_path.stem
 
-        gt_text = metadata.get(image_name)
-        if gt_text is None:
+        meta_entry = metadata.get(image_name)
+        if meta_entry is None:
             missing_gt.append(image_name)
             continue
+        gt_text = meta_entry.get("gt")
+        token_len = meta_entry.get("text_token_len")
 
         pred_path = args.predictions_dir / f"{image_id}.md"
         if not pred_path.exists():
@@ -89,23 +105,30 @@ def main() -> None:
                 "id": image_id,
                 "label": gt_text,
                 "answer": pred_text,
+                "text_token_len": token_len,
             }
         )
 
+        if idx in checkpoints:
+            percent = (idx / total) * 100
+            logger.info("Processed %d/%d images (%.1f%%)", idx, total, percent)
+
     if missing_gt:
-        print(f"[warn] Missing GT for {len(missing_gt)} images: {missing_gt[:5]} ...")
+        logger.warning("Missing GT for %d images: %s ...", len(missing_gt), missing_gt[:5])
     if missing_pred:
-        print(
-            f"[warn] Missing predictions for {len(missing_pred)} images: "
-            f"{[p.name for p in missing_pred[:5]]} ..."
+        logger.warning(
+            "Missing predictions for %d images: %s ...",
+            len(missing_pred),
+            [p.name for p in missing_pred[:5]],
         )
     if not records:
         raise RuntimeError("No eval records were generated. Check inputs.")
 
+    args.output_path.parent.mkdir(parents=True, exist_ok=True)
     args.output_path.write_text(
         json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    print(f"Wrote {len(records)} eval entries to {args.output_path}")
+    logger.info("Wrote %d eval entries to %s", len(records), args.output_path)
 
 
 if __name__ == "__main__":
