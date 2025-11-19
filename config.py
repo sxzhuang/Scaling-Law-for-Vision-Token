@@ -5,8 +5,8 @@
 # Large: base_size = 1280, image_size = 1280, crop_mode = False
 # Gundam: base_size = 1024, image_size = 640, crop_mode = True
 
-BASE_SIZE = 640
-IMAGE_SIZE = 640
+BASE_SIZE = 1024
+IMAGE_SIZE = 1024
 CROP_MODE = False
 MIN_CROPS= 2
 MAX_CROPS= 6 # max:9; If your GPU memory is small, it is recommended to set it to 6.
@@ -21,10 +21,11 @@ MODEL_PATH = 'deepseek-ai/DeepSeek-OCR' # change to your model path
 # .jpg, .png, .jpeg: run_dpsk_ocr_image.py; 
 # Omnidocbench images path: run_dpsk_ocr_eval_batch.py
 
-# INPUT_PATH = 'pride_blocks_experiment/images/' 
+# INPUT_PATH = 'build_dataset_from_ebook/pride_dataset/images/' 
+# OUTPUT_PATH = 'ocr_predictions/pride_dataset/1024/'
 INPUT_PATH = 'focus_benchmark_test/demo_test/' 
 # INPUT_PATH = 'OmniDocBench/images/color_textbook_zhonggaokao_小学_13.人教新起点英语（4-5年级）_人教新起点五年级英语上册_课本_人教新起点英语5A电子课本_page_008.png' 
-OUTPUT_PATH = 'focus_benchmark_test/demo_pred/'
+OUTPUT_PATH = 'demo_pred/'
 
 # PROMPT = '<image>\n<|grounding|>Convert the document to markdown.'
 PROMPT = '<image>\nFree OCR.'

@@ -22,5 +22,12 @@ tmp_eval.json
 pride_and_prejudice_dataset
 src_book
 pride_dataset
-pride/
+eval_results/
+pride_dataset_square/
 workspace_illustration.md
+pride_dataset_same_content_diff_shape/
+laws_dataset_square/
+economics_dataset_square/
+letters_dataset_square/
+medicine_dataset_square/
+newspaper_dataset_square/
