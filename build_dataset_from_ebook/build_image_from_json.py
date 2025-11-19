@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
+from transformers import AutoTokenizer
 
 WRAP_WIDTH_BY_BLOCKS = {1: 70, 2: 120, 3: 200, 4: 220}
 
@@ -46,6 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--double_count", type=int, default=200, help="Number of double-block samples.")
     parser.add_argument("--triple_count", type=int, default=200, help="Number of triple-block samples.")
     parser.add_argument("--quadruple_count", type=int, default=300, help="Number of quadruple-block samples.")
+    parser.add_argument("--tokenizer_name", type=str, default="Qwen/Qwen2.5-0.5B-Instruct", help="Tokenizer identifier for computing text_token_len.")
     return parser.parse_args()
 
 
@@ -257,6 +259,8 @@ def process_groups(
     wrap_width: int,
     padding: int,
     dpi: int,
+    tokenizer: AutoTokenizer,
+    token_cache: dict[str, int],
 ) -> list[dict]:
     records: list[dict] = []
     for combo in groups:
@@ -274,7 +278,12 @@ def process_groups(
             padding=padding,
         )
         save_pdf_and_jpg(image, pdf_path, jpg_path, dpi=dpi)
-        records.append({"image": jpg_path.name, "gt": combined_text})
+        text_token_len = token_cache.get(combined_text)
+        if text_token_len is None:
+            tokens = tokenizer(combined_text, add_special_tokens=True, truncation=False)
+            text_token_len = len(tokens.get("input_ids", []))
+            token_cache[combined_text] = text_token_len
+        records.append({"image": jpg_path.name, "gt": combined_text, "text_token_len": text_token_len})
     return records
 
 
@@ -288,6 +297,8 @@ def main() -> None:
 
     dirs = ensure_output_dirs(args.output_dir)
     font = load_font(args.font_path, args.font_size)
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name)
+    token_cache: dict[str, int] = {}
     all_indices = list(range(len(blocks)))
 
     sampling_plan = [
@@ -319,6 +330,8 @@ def main() -> None:
                 wrap_width=args.wrap_width,
                 padding=args.padding,
                 dpi=args.dpi,
+                tokenizer=tokenizer,
+                token_cache=token_cache,
             )
         )
 
