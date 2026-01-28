@@ -11,18 +11,8 @@ METRIC_KEYS = ["bleu", "f_measure", "precision", "recall", "edit_dist"]
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Visualize OCR evaluation metrics.")
-    parser.add_argument(
-        "--input",
-        type=Path,
-        default=Path("pride/1280/dpsk_eval_metric.json"),
-        help="Path to the per-record metric JSON.",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=Path("pride/1280/dpsk_eval_metric.png"),
-        help="Destination path for the scatter plot image.",
-    )
+    parser.add_argument("--input", type=Path, default=Path("eval_results/pride_square/OpenGVLab/InternVL3_5-8B-896/dpsk_eval_metric.json"), help="Path to the per-record metric JSON.")
+    parser.add_argument("--output", type=Path, default=Path("InternVL3_5-8B-896_eval_metric.png"), help="Destination path for the scatter plot image.")
     return parser.parse_args()
 
 
@@ -37,7 +27,7 @@ def load_metrics(path: Path) -> list[dict]:
 
 
 def plot_metrics(records: list[dict], output_path: Path) -> None:
-    text_lengths = [record.get("text_token_len", 0) for record in records]
+    text_lengths = [record.get("text_len", 0) for record in records]
     fig, axes = plt.subplots(2, 3, figsize=(15, 8), sharey=False)
     axes_flat = axes.flatten()
 
@@ -45,7 +35,7 @@ def plot_metrics(records: list[dict], output_path: Path) -> None:
         values = [record.get(key, 0) for record in records]
         ax.scatter(text_lengths, values, s=10, alpha=0.6)
         ax.set_title(key.replace("_", " ").title())
-        ax.set_xlabel("Text Token Length")
+        ax.set_xlabel("Text Length")
         ax.set_ylabel(key.upper())
         ax.grid(True, linestyle="--", alpha=0.3)
 

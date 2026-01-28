@@ -1,0 +1,9 @@
+model: OpenGVLab/InternVL3_5-8B
+served-model-name: OpenGVLab/InternVL3_5-8B
+trust-remote-code: true
+port: 50016
+dtype: "bfloat16"
+gpu-memory-utilization: 0.90
+tensor-parallel-size: 1
+max-model-len: 32768
+allowed-local-media-path: /slurm/shuxin_zhuang/workspace/Scaling-Law-for-Vision-Token

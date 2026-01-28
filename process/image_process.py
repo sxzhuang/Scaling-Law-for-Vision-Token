@@ -499,4 +499,122 @@ class DeepseekOCRProcessor(ProcessorMixin):
         return [[input_ids, pixel_values, images_crop, images_seq_mask, images_spatial_crop, num_image_tokens, image_shapes]]
 
 
+    def tokenize_with_images_multipaddling(
+        self,
+        images: List[Image.Image],
+        bos: bool = True,
+        eos: bool = True,
+        cropping: bool = True,
+    ):
+        """Tokenize text with <image> tags using multiple paddling crops."""
+
+        conversation = PROMPT
+        assert conversation.count(self.image_token) == len(images)
+        text_splits = conversation.split(self.image_token)
+        images_list, images_crop_list, images_seq_mask, images_spatial_crop = [], [], [], []
+        image_shapes = []
+        num_image_tokens = []
+        tokenized_str = []
+        pad_color = tuple(int(x * 255) for x in self.image_transform.mean)
+        crop_offsets = [(x, y) for y in (0, 8, 16) for x in (0, 8, 16)]
+
+        for text_sep, image in zip(text_splits, images):
+            tokenized_sep = self.encode(text_sep, bos=False, eos=False)
+            tokenized_str += tokenized_sep
+            images_seq_mask += [False] * len(tokenized_sep)
+
+            image_shapes.append(image.size)
+
+            if cropping:
+                resized_image = image.resize((self.image_size - 16, self.image_size - 16))
+                images_crop_raw = []
+                for offset in crop_offsets:
+                    canvas = Image.new(image.mode, (self.image_size, self.image_size), color=pad_color)
+                    canvas.paste(resized_image, offset)
+                    images_crop_raw.append(canvas)
+                crop_ratio = [3, 3]
+            else:
+                crop_ratio = [1, 1]
+
+            if self.image_size <= 640 and not cropping:
+                image = image.resize((self.image_size, self.image_size))
+
+            global_view = ImageOps.pad(image, (self.base_size, self.base_size), color=pad_color)
+            images_list.append(self.image_transform(global_view))
+
+            num_width_tiles, num_height_tiles = crop_ratio
+            images_spatial_crop.append([num_width_tiles, num_height_tiles])
+
+            if num_width_tiles > 1 or num_height_tiles > 1:
+                for crop_image in images_crop_raw:
+                    images_crop_list.append(self.image_transform(crop_image))
+
+            num_queries = math.ceil((self.image_size // self.patch_size) / self.downsample_ratio)
+            num_queries_base = math.ceil((self.base_size // self.patch_size) / self.downsample_ratio)
+
+            tokenized_image = ([self.image_token_id] * num_queries_base + [self.image_token_id]) * num_queries_base
+            tokenized_image += [self.image_token_id]
+            if num_width_tiles > 1 or num_height_tiles > 1:
+                tokenized_image += [self.image_token_id] * ((num_queries + 1) * num_queries * 9)
+            tokenized_str += tokenized_image
+            images_seq_mask += [True] * len(tokenized_image)
+            num_image_tokens.append(len(tokenized_image))
+
+        tokenized_sep = self.encode(text_splits[-1], bos=False, eos=False)
+        tokenized_str += tokenized_sep
+        images_seq_mask += [False] * len(tokenized_sep)
+
+        if bos:
+            tokenized_str = [self.bos_id] + tokenized_str
+            images_seq_mask = [False] + images_seq_mask
+        if eos:
+            tokenized_str = tokenized_str + [self.eos_id]
+            images_seq_mask = images_seq_mask + [False]
+
+        assert len(tokenized_str) == len(
+            images_seq_mask), f"tokenize_with_images_multipaddling func: tokenized_str's length {len(tokenized_str)} is not equal to imags_seq_mask's length {len(images_seq_mask)}"
+
+        masked_tokenized_str = []
+        for token_index in tokenized_str:
+            if token_index != self.image_token_id:
+                masked_tokenized_str.append(token_index)
+            else:
+                masked_tokenized_str.append(self.ignore_id)
+
+        assert len(tokenized_str) == len(images_seq_mask) == len(masked_tokenized_str), \
+            (f"tokenized_str's length {len(tokenized_str)}, input_ids' length {len(masked_tokenized_str)}, "
+             f"imags_seq_mask's length {len(images_seq_mask)}, are not equal")
+
+        input_ids = torch.LongTensor(tokenized_str)
+        target_ids = torch.LongTensor(masked_tokenized_str)
+        images_seq_mask = torch.tensor(images_seq_mask, dtype=torch.bool)
+
+        target_ids[(input_ids < 0) |
+                   (input_ids == self.image_token_id)] = self.ignore_id
+        input_ids[input_ids < 0] = self.pad_id
+
+        inference_mode = True
+
+        if inference_mode:
+            assert input_ids[-1] == self.eos_id
+            input_ids = input_ids[:-1]
+            target_ids = target_ids[:-1]
+            images_seq_mask = images_seq_mask[:-1]
+
+        if len(images_list) == 0:
+            pixel_values = torch.zeros((1, 3, self.base_size, self.base_size))
+            images_spatial_crop = torch.zeros((1, 1), dtype=torch.long)
+            images_crop = torch.zeros((1, 3, self.image_size, self.image_size)).unsqueeze(0)
+        else:
+            pixel_values = torch.stack(images_list, dim=0)
+            images_spatial_crop = torch.tensor(images_spatial_crop, dtype=torch.long)
+            if images_crop_list:
+                images_crop = torch.stack(images_crop_list, dim=0).unsqueeze(0)
+            else:
+                images_crop = torch.zeros((1, 3, self.image_size, self.image_size)).unsqueeze(0)
+
+        input_ids = input_ids.unsqueeze(0)
+
+        return [[input_ids, pixel_values, images_crop, images_seq_mask, images_spatial_crop, num_image_tokens, image_shapes]]
+
 AutoProcessor.register("DeepseekVLV2Processor", DeepseekOCRProcessor)

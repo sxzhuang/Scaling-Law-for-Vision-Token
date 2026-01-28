@@ -31,3 +31,17 @@ economics_dataset_square/
 letters_dataset_square/
 medicine_dataset_square/
 newspaper_dataset_square/
+pride_dataset_square_large_variance/
+pride_dataset_square_density_experiment/
+pride_dataset_square_paste2larger/
+ocr_predictions/
+pride_dataset_square_cutoff_content/
+demo_*.csv
+data4analysis.csv
+*_square_density_experiment/
+.venv
+*.csv
+*.jpg
+*.png
+pride_dataset_square_collapse*
+test.py

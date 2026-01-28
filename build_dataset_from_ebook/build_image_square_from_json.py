@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate square-ish OCR samples from Pride & Prejudice blocks."""
+"""Generate square-ish OCR samples from dataset blocks via shared square render helpers."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 from transformers import AutoTokenizer
+from utils.generate_square_images import render_text_assets, save_image_and_pdf
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -70,6 +71,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tokenizer_name", type=str, default="Qwen/Qwen2.5-0.5B-Instruct", help="Tokenizer identifier for computing text_token_len.")
     parser.add_argument("--metadata_name", type=str, default="pride_prejudice_square_gt.json", help="Filename for the output metadata JSON.")
     parser.add_argument("--output_image_prefix", type=str, default="pride_pejudice", help="Prefix for generated PDF/JPG filenames.")
+    parser.add_argument("--line_spacing", type=int, default=6, help="Line spacing (pixels) used during rendering.")
+    parser.add_argument("--letter_spacing", type=int, default=0, help="Letter spacing (pixels) used during rendering.")
     return parser.parse_args()
 
 
@@ -159,39 +162,6 @@ def draw_justified_line(
             cursor += per_gap
 
 
-def render_text_image(
-    text: str,
-    font: ImageFont.ImageFont,
-    wrap_width: int,
-    padding: int,
-) -> Image.Image:
-    lines = wrap_text(text, wrap_width)
-    bbox = font.getbbox("Hg")
-    line_height = (bbox[3] - bbox[1]) + 6
-    max_width = max((line_width(line, font) for line in lines), default=0)
-    width = int(max_width) + padding * 2 or padding * 2
-    height = line_height * max(1, len(lines)) + padding * 2
-
-    image = Image.new("RGB", (width, height), "white")
-    draw = ImageDraw.Draw(image)
-    y = padding
-    for idx, line in enumerate(lines):
-        is_last = idx == len(lines) - 1
-        if not line.strip() or is_last:
-            draw.text((padding, y), line, font=font, fill="black")
-        else:
-            draw_justified_line(
-                draw=draw,
-                line=line,
-                font=font,
-                x=padding,
-                y=y,
-                max_width=max_width,
-            )
-        y += line_height
-    return image
-
-
 def ensure_output_dirs(base_dir: Path) -> dict[str, Path]:
     pdf_dir = base_dir / "pdf"
     jpg_dir = base_dir / "images"
@@ -263,17 +233,6 @@ def effective_sample_count(total_blocks: int, group_size: int, requested: int) -
     return min(requested, available)
 
 
-def save_pdf_and_jpg(
-    image: Image.Image,
-    pdf_path: Path,
-    jpg_path: Path,
-    dpi: int,
-) -> None:
-    rgb_image = image.convert("RGB")
-    rgb_image.save(pdf_path, "PDF", resolution=dpi)
-    rgb_image.save(jpg_path, "JPEG", quality=95, dpi=(dpi, dpi))
-
-
 def block_code(block: Block) -> str:
     match = re.match(r"(?P<chapter>.+?)_block(?P<idx>\d+)$", block.key)
     if not match:
@@ -292,72 +251,38 @@ def compute_text_token_len(text: str, tokenizer: AutoTokenizer, cache: dict[str,
     return length
 
 
-def generate_candidate_wraps(
-    token_len: int,
-    base_wrap: int,
-    history: WrapHistory,
-) -> list[int]:
-    candidates: list[int] = []
-    history_wrap = history.best_wrap(token_len)
-    if history_wrap is not None:
-        for delta in (0, -15, -10, -5, 5, 10, 15):
-            candidate = history_wrap + delta
-            if candidate > 10:
-                candidates.append(candidate)
-    for delta in (0, -15, -10, -5, 5, 10, 15):
-        candidate = base_wrap + delta
-        if candidate > 10:
-            candidates.append(candidate)
-    candidates.extend([40, 50, 60, 70, 80, 90, 100, 120, 140])
-    # Preserve order but remove duplicates
-    unique_candidates: list[int] = []
-    seen = set()
-    for value in candidates:
-        if value not in seen:
-            seen.add(value)
-            unique_candidates.append(value)
-    return unique_candidates
-
-
 def render_squareish_image(
     text: str,
     font: ImageFont.ImageFont,
+    font_path: Path | None,
+    font_size: int,
+    pdf_dpi: int,
     padding: int,
+    line_spacing: int,
+    letter_spacing: int,
     token_len: int,
     base_wrap: int,
     history: WrapHistory,
     ratio_min: float,
     ratio_max: float,
-) -> tuple[Image.Image, int, float]:
-    candidates = generate_candidate_wraps(token_len, base_wrap, history)
-    best_image: Image.Image | None = None
-    best_wrap = base_wrap
-    best_ratio = float("inf")
-    best_delta = float("inf")
-
-    for wrap in candidates:
-        image = render_text_image(text, font, wrap_width=wrap, padding=padding)
-        width, height = image.size
-        if height == 0:
-            continue
-        ratio = width / height
-        delta = abs(ratio - 1.0)
-        if ratio_min <= ratio <= ratio_max:
-            history.add(token_len, wrap)
-            return image, wrap, ratio
-        if delta < best_delta:
-            best_delta = delta
-            best_image = image
-            best_wrap = wrap
-            best_ratio = ratio
-
-    if best_image is None:
-        # Fallback: render once with base wrap.
-        best_image = render_text_image(text, font, wrap_width=base_wrap, padding=padding)
-        width, height = best_image.size
-        best_ratio = (width / height) if height else 0.0
-        best_wrap = base_wrap
-    return best_image, best_wrap, best_ratio
+) -> tuple[Image.Image, bytes, int, float]:
+    render_result = render_text_assets(
+        text=text,
+        font_size=font_size,
+        line_spacing=line_spacing,
+        letter_spacing=letter_spacing,
+        font_path=font_path,
+        pdf_dpi=pdf_dpi,
+        padding=padding,
+        ratio_min=ratio_min,
+        ratio_max=ratio_max,
+    )
+    image = render_result["image"]
+    pdf_bytes = render_result["pdf"]
+    width, height = render_result["image_shape"]
+    aspect_ratio = (width / height) if height else 0.0
+    history.add(token_len, base_wrap)
+    return image, pdf_bytes, base_wrap, aspect_ratio
 
 
 def process_groups(
@@ -365,6 +290,10 @@ def process_groups(
     groups: Sequence[tuple[int, ...]],
     blocks: Sequence[Block],
     font: ImageFont.ImageFont,
+    font_path: Path | None,
+    font_size: int,
+    line_spacing: int,
+    letter_spacing: int,
     dirs: dict[str, Path],
     wrap_width: int,
     padding: int,
@@ -392,10 +321,15 @@ def process_groups(
         block_count = len(combo)
         dynamic_wrap = WRAP_WIDTH_BY_BLOCKS.get(block_count, wrap_width)
         token_len = compute_text_token_len(combined_text, tokenizer, token_cache)
-        image, wrap_used, aspect_ratio = render_squareish_image(
+        image, pdf_bytes, wrap_used, aspect_ratio = render_squareish_image(
             text=combined_text,
             font=font,
+            font_path=font_path,
+            font_size=font_size,
+            pdf_dpi=dpi,
             padding=padding,
+            line_spacing=line_spacing,
+            letter_spacing=letter_spacing,
             token_len=token_len,
             base_wrap=dynamic_wrap,
             history=history,
@@ -405,7 +339,7 @@ def process_groups(
         if jpg_path.exists():
             logger.info("Skipping existing image/pdf pair for %s", base_name)
         else:
-            save_pdf_and_jpg(image, pdf_path, jpg_path, dpi=dpi)
+            save_image_and_pdf(image=image, pdf=pdf_bytes, image_path=jpg_path, pdf_path=pdf_path, dpi=dpi)
         records.append(
             {
                 "image": jpg_name,
@@ -426,60 +360,6 @@ def ratio_within_range(aspect_ratio: float | None, ratio_min: float, ratio_max: 
         return False
     return ratio_min <= aspect_ratio <= ratio_max
 
-
-def remove_artifacts(record: dict, dirs: dict[str, Path]) -> None:
-    image_name = record.get("image")
-    pdf_name = record.get("pdf")
-    if image_name:
-        image_path = dirs["jpg"] / image_name
-        if image_path.exists():
-            image_path.unlink()
-    if pdf_name:
-        pdf_path = dirs["pdf"] / pdf_name
-        if pdf_path.exists():
-            pdf_path.unlink()
-
-
-def regenerate_record(
-    record: dict,
-    args: argparse.Namespace,
-    font: ImageFont.ImageFont,
-    tokenizer: AutoTokenizer,
-    token_cache: dict[str, int],
-    history: WrapHistory,
-    dirs: dict[str, Path],
-) -> dict:
-    text = record["gt"]
-    token_len = record.get("text_token_len")
-    if token_len is None:
-        token_len = compute_text_token_len(text, tokenizer, token_cache)
-    blocks = record.get("blocks") or []
-    block_count = len(blocks) if blocks else 1
-    base_wrap = record.get(
-        "wrap_width",
-        WRAP_WIDTH_BY_BLOCKS.get(block_count, args.wrap_width),
-    )
-    image, wrap_used, aspect_ratio = render_squareish_image(
-        text=text,
-        font=font,
-        padding=args.padding,
-        token_len=token_len,
-        base_wrap=base_wrap,
-        history=history,
-        ratio_min=args.ratio_min,
-        ratio_max=args.ratio_max,
-    )
-    pdf_name = record.get("pdf")
-    image_name = record.get("image")
-    if not pdf_name or not image_name:
-        raise ValueError("Record is missing image/pdf names, cannot regenerate.")
-    pdf_path = dirs["pdf"] / pdf_name
-    jpg_path = dirs["jpg"] / image_name
-    save_pdf_and_jpg(image, pdf_path, jpg_path, dpi=args.dpi)
-    record["text_token_len"] = token_len
-    record["wrap_width"] = wrap_used
-    record["aspect_ratio"] = aspect_ratio
-    return record
 def generate_metadata(
     args: argparse.Namespace,
     blocks: list[Block],
@@ -524,6 +404,10 @@ def generate_metadata(
                 groups=groups,
                 blocks=blocks,
                 font=font,
+                font_path=args.font_path,
+                font_size=args.font_size,
+                line_spacing=args.line_spacing,
+                letter_spacing=args.letter_spacing,
                 dirs=dirs,
                 wrap_width=args.wrap_width,
                 padding=args.padding,
@@ -558,36 +442,6 @@ def main() -> None:
     history = WrapHistory()
 
     metadata, used_pdfs, used_jpgs = generate_metadata(args, blocks, font, tokenizer, token_cache, history, rng, dirs)
-
-    def in_range(record: dict) -> bool:
-        return ratio_within_range(record.get("aspect_ratio"), args.ratio_min, args.ratio_max)
-
-    bad_indices = [idx for idx, rec in enumerate(metadata) if not in_range(rec)]
-    if bad_indices:
-        logger.info("Regenerating %d images with aspect ratios outside [%.2f, %.2f].", len(bad_indices), args.ratio_min, args.ratio_max)
-        for idx in bad_indices:
-            rec = metadata[idx]
-            remove_artifacts(rec, dirs)
-            metadata[idx] = regenerate_record(
-                rec,
-                args=args,
-                font=font,
-                tokenizer=tokenizer,
-                token_cache=token_cache,
-                history=history,
-                dirs=dirs,
-            )
-
-    remaining_bad = [rec for rec in metadata if not in_range(rec)]
-    remaining_bad_count = len(remaining_bad)
-    if remaining_bad_count:
-        logger.info(
-            "After regeneration, %d images still fall outside the desired aspect ratio range.",
-            remaining_bad_count,
-        )
-    else:
-        logger.info("After regeneration, 0 images remain outside the desired aspect ratio range.")
-        logger.info("All images meet the desired aspect ratio range after regeneration.")
 
     output_json = dirs["base"] / args.metadata_name
     output_json.write_text(

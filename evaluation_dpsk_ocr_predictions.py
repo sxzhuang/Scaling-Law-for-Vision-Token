@@ -104,6 +104,7 @@ def evaluate_predictions(input_file, output_file):
         if text_length is None:
             text_length = len(gt_text)
         metrics["text_token_len"] = text_length
+        metrics["text_len"] = record.get("text_len")
         metrics["id"] = record.get("id")
         metrics_records.append(metrics)
 

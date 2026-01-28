@@ -1,0 +1,9 @@
+model: deepseek-ai/deepseek-vl2
+served-model-name: deepseek-ai/deepseek-vl2
+trust-remote-code: true
+port: 50016
+hf-overrides: '{"architectures":["DeepseekVLV2ForCausalLM"],"vocab_size":129280,"text_config":{"vocab_size":129280,"num_hidden_layers":30}}'
+dtype: "bfloat16"
+gpu-memory-utilization: 0.90
+tensor-parallel-size: 1
+max-model-len: 4096

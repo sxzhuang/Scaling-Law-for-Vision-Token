@@ -105,6 +105,34 @@ class DeepseekOCRProcessingInfo(BaseProcessingInfo):
 
         return global_views_tokens + local_views_tokens + 1
 
+    # def get_num_image_tokens(self,
+    #                          *,
+    #                          image_width: int,
+    #                          image_height: int,
+    #                          cropping: bool = True) -> int:        
+    #     hf_processor = self.get_hf_processor()
+
+    #     image_size = IMAGE_SIZE
+    #     base_size = BASE_SIZE
+    #     patch_size = 16
+    #     downsample_ratio = 4
+
+    #     if CROP_MODE:
+    #         num_width_tiles, num_height_tiles = 3, 3
+    #     else:
+    #         num_width_tiles = num_height_tiles = 1
+
+    #     h = w = math.ceil((base_size // patch_size) / downsample_ratio)
+    #     h2 = w2 = math.ceil((image_size // patch_size) / downsample_ratio)
+
+    #     global_views_tokens = h * (w + 1)
+    #     if num_width_tiles > 1 or num_height_tiles > 1:
+    #         local_views_tokens = (num_width_tiles * num_height_tiles) * h2 * (w2 + 1)
+    #     else:
+    #         local_views_tokens = 0
+
+    #     return global_views_tokens + local_views_tokens + 1
+
     def get_image_size_with_most_features(self) -> ImageSize:
 
         if IMAGE_SIZE == 1024 and BASE_SIZE == 1280:
@@ -465,6 +493,96 @@ class DeepseekOCRForCausalLM(nn.Module, SupportsMultiModal, SupportsPP):
                 images_in_this_batch.append(global_local_features)
 
         return images_in_this_batch
+
+    # def _pixel_values_to_embedding(
+    #     self,
+    #     pixel_values: torch.Tensor,
+    #     images_crop: torch.Tensor,
+    #     images_spatial_crop: torch.Tensor,
+    # ) -> NestedTensors:
+    #     images_in_this_batch = []
+
+    #     with torch.no_grad():
+    #         for jdx in range(images_spatial_crop.size(0)):
+    #             patches = images_crop[jdx][0].to(torch.bfloat16)
+    #             image_ori = pixel_values[jdx]
+    #             crop_shape = images_spatial_crop[jdx][0]
+
+    #             if torch.sum(patches).item() != 0:
+    #                 local_features_1 = self.sam_model(patches)
+    #                 local_features_2 = self.vision_model(patches, local_features_1)
+
+    #                 local_features = torch.cat((local_features_2[:, 1:], local_features_1.flatten(2).permute(0, 2, 1)), dim=-1)
+    #                 local_features = self.projector(local_features)
+
+    #                 global_features_1 = self.sam_model(image_ori)
+    #                 global_features_2 = self.vision_model(image_ori, global_features_1)
+    #                 global_features = torch.cat((global_features_2[:, 1:], global_features_1.flatten(2).permute(0, 2, 1)), dim=-1)
+    #                 global_features = self.projector(global_features)
+
+    #                 if PRINT_NUM_VIS_TOKENS:
+    #                     print('=====================')
+    #                     print('BASE: ', global_features.shape)
+    #                     print('PATCHES: ', local_features.shape)
+    #                     print('=====================')
+
+    #                 _, hw, n_dim = global_features.shape
+    #                 h = w = int(hw ** 0.5)
+
+    #                 _2, hw2, n_dim2 = local_features.shape
+    #                 h2 = w2 = int(hw2 ** 0.5)
+
+    #                 width_crop_num, height_crop_num = crop_shape[0], crop_shape[1]
+
+    #                 global_features = global_features.view(h, w, n_dim)
+
+    #                 global_features = torch.cat(
+    #                     [global_features, self.image_newline[None, None, :].expand(h, 1, n_dim)], dim=1
+    #                 )
+
+    #                 global_features = global_features.view(-1, n_dim)
+
+    #                 local_features = local_features.view(height_crop_num, width_crop_num, h2, w2, n_dim2)
+    #                 local_sequences = []
+    #                 for height_idx in range(height_crop_num):
+    #                     for width_idx in range(width_crop_num):
+    #                         patch_features = local_features[height_idx, width_idx]
+    #                         patch_features = torch.cat(
+    #                             [patch_features, self.image_newline[None, None, :].expand(h2, 1, n_dim2)], dim=1
+    #                         )
+    #                         local_sequences.append(patch_features.reshape(-1, n_dim2))
+    #                 local_features = torch.cat(local_sequences, dim=0)
+
+    #                 global_local_features = torch.cat([local_features, global_features, self.view_seperator[None, :]], dim=0)
+
+    #             else:
+    #                 global_features_1 = self.sam_model(image_ori)
+    #                 global_features_2 = self.vision_model(image_ori, global_features_1)
+    #                 global_features = torch.cat((global_features_2[:, 1:], global_features_1.flatten(2).permute(0, 2, 1)), dim=-1)
+    #                 global_features = self.projector(global_features)
+
+    #                 if PRINT_NUM_VIS_TOKENS:
+    #                     print('=====================')
+    #                     print('BASE: ', global_features.shape)
+    #                     print('NO PATCHES')
+    #                     print('=====================')
+
+    #                 _, hw, n_dim = global_features.shape
+    #                 h = w = int(hw ** 0.5)
+
+    #                 global_features = global_features.view(h, w, n_dim)
+
+    #                 global_features = torch.cat(
+    #                     [global_features, self.image_newline[None, None, :].expand(h, 1, n_dim)], dim=1
+    #                 )
+
+    #                 global_features = global_features.view(-1, n_dim)
+
+    #                 global_local_features = torch.cat([global_features, self.view_seperator[None, :]], dim=0)
+
+    #             images_in_this_batch.append(global_local_features)
+
+    #     return images_in_this_batch
 
     def _process_image_input(
             self, image_input) -> torch.Tensor:
