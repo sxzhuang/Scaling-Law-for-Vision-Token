@@ -1,0 +1,26 @@
+{
+  "novels": {
+    "metadata": "build_dataset_from_ebook/pride_dataset_square/pride_square_gt.json",
+    "evaluation_root": "eval_results/pride_square"
+  },
+  "laws": {
+    "metadata": "build_dataset_from_ebook/laws_dataset_square/laws_square_gt.json",
+    "evaluation_root": "eval_results/laws_square"
+  },
+  "economics": {
+    "metadata": "build_dataset_from_ebook/economics_dataset_square/economics_square_gt.json",
+    "evaluation_root": "eval_results/economics_square"
+  },
+  "medicine": {
+    "metadata": "build_dataset_from_ebook/medicine_dataset_square/medicine_square_gt.json",
+    "evaluation_root": "eval_results/medicine_square"
+  },
+  "newspapers": {
+    "metadata": "build_dataset_from_ebook/newspaper_dataset_square/newspaper_square_gt.json",
+    "evaluation_root": "eval_results/newspaper_square"
+  },
+  "letters": {
+    "metadata": "build_dataset_from_ebook/letters_dataset_square/letters_square_gt.json",
+    "evaluation_root": "eval_results/letters_square"
+  }
+}

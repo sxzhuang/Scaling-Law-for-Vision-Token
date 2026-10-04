@@ -58,3 +58,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+# python scatter_plot/visualize_eval_metric.py --input eval_results/pride_dataset_square_random_phase/640/dpsk_eval_metric.json --output random_phase_640.png

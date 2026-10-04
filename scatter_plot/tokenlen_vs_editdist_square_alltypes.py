@@ -15,6 +15,7 @@ FIG_HEIGHT = 1.8         # inches (你可按论文版式调整高度，但宽度
 FONT_SIZE = 8            # 固定字号
 
 RESOLUTIONS = [512, 640, 1024, 1280]
+INCLUDED_DATASETS = ["economics", "laws", "letters", "medicine", "newspaper", "pride"]
 MARKERS = ["o", "s", "D", "^", "v", "<", ">", "P", "X", "*", "h", "H", "d", "p"]
 # FIXED_COLORS = ["#4C78A8", "#F58518", "#54A24B", "#E45756", "#72B7B2", "#B279A2", "#FF9DA6", "#9D755D", "#BAB0AC", "#1F77B4"]
 # FIXED_COLORS = ["#66C2A5", "#FC8D62", "#8DA0CB", "#FFD92F", "#A6D854", "#E78AC3"]
@@ -45,11 +46,11 @@ def load_metrics(json_path: Path) -> list[dict]:
 def collect_data(root: Path) -> dict[int, dict[str, tuple[list[int], list[float]]]]:
     per_res_data: dict[int, dict[str, tuple[list[int], list[float]]]] = {res: {} for res in RESOLUTIONS}
 
-    for square_dir in sorted(root.iterdir()):
-        if not square_dir.is_dir() or not square_dir.name.endswith("_square"):
+    for dataset_label in INCLUDED_DATASETS:
+        square_dir = root / f"{dataset_label}_square"
+        if not square_dir.is_dir():
+            logging.warning("Missing directory %s", square_dir)
             continue
-
-        dataset_label = square_dir.name[:-7]  # remove "_square"
 
         for res in RESOLUTIONS:
             json_file = square_dir / str(res) / "dpsk_eval_metric.json"
@@ -185,12 +186,7 @@ def main() -> None:
         else:
             ax.tick_params(axis="y", left=False, labelleft=False)
 
-        # 只在右侧最后一个放 TL
-        if idx == 3:
-            ax.set_xlabel("TL")
-            ax.xaxis.set_label_coords(0.96, -0.02)
-        else:
-            ax.set_xlabel("")
+        ax.set_xlabel("")
 
         # 分辨率标注：放在子图上方
         ax.text(

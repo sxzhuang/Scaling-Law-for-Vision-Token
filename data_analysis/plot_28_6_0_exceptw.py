@@ -19,13 +19,26 @@ DEFAULT_LINE_SPACING = 6
 DEFAULT_LETTER_SPACING = 0
 DEFAULT_EPS = 1e-6
 DEFAULT_PLOT_DPI = 200
-DEFAULT_PLOT_WIDTH = 3.03
+DEFAULT_PLOT_WIDTH = 3.25
 DEFAULT_PLOT_HEIGHT = DEFAULT_PLOT_WIDTH * 0.75
-DEFAULT_PLOT_FONT_SIZE = 9
+DEFAULT_PLOT_FONT_SIZE = 7.5
 DEFAULT_Z_MIN = -8.0
 DEFAULT_Z_MAX = 13.0
 DEFAULT_Z_PADDING = 1.0
 DEFAULT_BOUNDARY_ZS = (-2.0, 3.4)
+Z_BIN_WIDTH = 1.0
+BOUNDARY_BIN_SAMPLE_RATIO = 0.5
+OTHER_BIN_SAMPLE_RATIO = 0.25
+RANDOM_SEED = 0
+SCATTER_ALPHA = 1.0
+SCATTER_SIZE = 1.0
+SCATTER_EDGE_COLOR = "none"
+SCATTER_LINEWIDTH = 0.0
+LINE_MARKER_LINEWIDTH = 0.45
+BOUNDARY_COLOR = "#9E9E9E"
+CURVE_COLOR = "#D62728"
+LEGEND_CURVE_LINEWIDTH = 1.2
+LEGEND_BOUNDARY_LINEWIDTH = 1.2
 
 
 def ensure_dir(path: Path) -> None:
@@ -182,6 +195,34 @@ def load_plot_data(
     return df
 
 
+def boundary_neighbor_bins(boundary_zs: tuple[float, ...], bin_width: float) -> set[int]:
+    bins: set[int] = set()
+    for boundary_z in boundary_zs:
+        right_bin = int(np.floor(boundary_z / bin_width))
+        bins.add(right_bin - 1)
+        bins.add(right_bin)
+    return bins
+
+
+def sample_by_z_bin(group: pd.DataFrame, resolution: int) -> pd.DataFrame:
+    if group.empty:
+        return group
+    boundary_bins = boundary_neighbor_bins(DEFAULT_BOUNDARY_ZS, Z_BIN_WIDTH)
+    sampled_groups = []
+    group = group.copy()
+    group["_z_bin"] = np.floor(group["Z"].astype(float) / Z_BIN_WIDTH).astype(int)
+    for z_bin, bin_group in group.groupby("_z_bin", sort=True):
+        sample_ratio = BOUNDARY_BIN_SAMPLE_RATIO if int(z_bin) in boundary_bins else OTHER_BIN_SAMPLE_RATIO
+        if sample_ratio >= 1.0:
+            sampled_bin = bin_group
+        else:
+            random_state = RANDOM_SEED + int(resolution) * 1009 + (int(z_bin) + 10000)
+            sampled_bin = bin_group.sample(frac=sample_ratio, random_state=random_state)
+        sampled_groups.append(sampled_bin)
+    sampled = pd.concat(sampled_groups, axis=0).sort_index()
+    return sampled.drop(columns=["_z_bin"])
+
+
 def plot_scaling_law(
     df: pd.DataFrame,
     per_resolution_params: dict[int, dict[str, float]],
@@ -205,43 +246,44 @@ def plot_scaling_law(
     df["Z"] = df["w0"] + shared_params["a"] * df["logV"].astype(float) + shared_params["alpha"] * df["logG"].astype(float)
 
     fig, ax = plt.subplots(figsize=(DEFAULT_PLOT_WIDTH, DEFAULT_PLOT_HEIGHT))
-    colors = ["#1F77B4", "#E377C2", "#BCBD22", "#2CA02C", "#D62728", "#86CAD2"]
-    markers = ["o", "s", "^", "D", "v", "P", "X", "*"]
+    colors = ["#4F86B7", "#D48BC4", "#F2A33A", "#5FA95F", "#C96A6A", "#78BAC1"]
+    markers = ["o", "^", "+", "v", "<", "P", "X", "*"]
     grouped = list(df.groupby("resolution", sort=True))
     for idx, (resolution, group) in enumerate(grouped):
+        group = sample_by_z_bin(group, int(resolution))
         if scatter_ratio < 1.0:
-            group = group.sample(frac=scatter_ratio, random_state=0)
+            group = group.sample(frac=scatter_ratio, random_state=RANDOM_SEED)
         color = colors[idx % len(colors)]
         marker = markers[idx % len(markers)]
-        ax.scatter(
-            group["Z"],
-            group["edit_distance"],
-            s=0.05,
-            alpha=0.7,
-            color=color,
-            marker=marker,
-            label=f"R = {resolution}",
-        )
+        is_line_marker = marker in {"+", "x", "1", "2", "3", "4", "|", "_"}
+        scatter_kwargs = {
+            "s": SCATTER_SIZE,
+            "alpha": SCATTER_ALPHA,
+            "color": color,
+            "marker": marker,
+            "linewidth": LINE_MARKER_LINEWIDTH if is_line_marker else SCATTER_LINEWIDTH,
+            "label": f"R = {resolution}",
+        }
+        if not is_line_marker:
+            scatter_kwargs["edgecolors"] = SCATTER_EDGE_COLOR
+        ax.scatter(group["Z"], group["edit_distance"], **scatter_kwargs)
 
     z_min = DEFAULT_Z_MIN - DEFAULT_Z_PADDING
     z_max = DEFAULT_Z_MAX + DEFAULT_Z_PADDING
     z_grid = np.linspace(z_min, z_max, 200)
     pi = expit(z_grid)
     expected_ed = (1.0 - pi) * shared_params["mean0"] + pi * shared_params["mean1"]
-    line_color = colors[len(grouped) % len(colors)]
-    ax.plot(z_grid, expected_ed, color=line_color, linewidth=2, label="E[D|Z]")
+    ax.plot(z_grid, expected_ed, color=CURVE_COLOR, linewidth=2, label="E[D|Z]")
 
-    ax2 = ax.twinx()
     for boundary_z in DEFAULT_BOUNDARY_ZS:
         ax.axvline(
             boundary_z,
-            color="black",
+            color=BOUNDARY_COLOR,
             linestyle="--",
-            linewidth=0.8,
+            linewidth=0.7,
             zorder=1,
         )
     ax.set_xlim(z_min, z_max)
-    ax2.set_xlim(z_min, z_max)
     ed_min = float(df["edit_distance"].min())
     ed_max = float(df["edit_distance"].max())
     ed_range = ed_max - ed_min
@@ -253,26 +295,41 @@ def plot_scaling_law(
     if left_bottom >= 0:
         left_bottom = -ed_margin
     ax.set_ylim(left_bottom, left_top)
-    ax2.set_ylim(left_bottom, left_top)
-    right_ticks = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    right_ticks = [0.0, 0.25, 0.5, 0.75, 1.0]
     ax.set_yticks(right_ticks)
-    ax.set_yticklabels([f"{tick:.1f}" for tick in right_ticks])
-    ax2.set_yticks(right_ticks)
-    ax2.set_yticklabels([f"{tick:.1f}" for tick in right_ticks])
+    ax.set_yticklabels(["0.00", "0.25", "0.50", "0.75", "1.00"])
 
-    ax.set_xlabel("")
-    ax.set_ylabel("")
-    ax.text(-0.04, 1.02, "ED", transform=ax.transAxes, ha="left", va="bottom")
-    ax.text(0.975, -0.08, "Z", transform=ax.transAxes, ha="left", va="center")
+    ax.set_xlabel("Capacity pressure")
+    ax.set_ylabel("Edit distance")
+    ax.text(
+        1.01,
+        -0.055,
+        "Z",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=DEFAULT_PLOT_FONT_SIZE,
+        clip_on=False,
+    )
     ax.tick_params(axis="both", which="both", length=1.5, width=0.5)
-    ax2.tick_params(axis="both", which="both", length=1.5, width=0.5)
-    ax.grid(True, linestyle="--", linewidth=0.6, alpha=0.5)
+    ax.grid(False)
 
     handles, labels = ax.get_legend_handles_labels()
-    handles2, labels2 = ax2.get_legend_handles_labels()
-    boundary_handle = Line2D([0], [0], color="black", linestyle="--", linewidth=0.8)
-    legend_items = handles + handles2 + [boundary_handle]
-    legend_labels = labels + labels2 + ["Boundary"]
+    legend_items = [
+        Line2D([0], [0], color=CURVE_COLOR, linewidth=LEGEND_CURVE_LINEWIDTH)
+        if label == "E[D|Z]"
+        else handle
+        for handle, label in zip(handles, labels)
+    ]
+    boundary_handle = Line2D(
+        [0],
+        [0],
+        color=BOUNDARY_COLOR,
+        linestyle="--",
+        linewidth=LEGEND_BOUNDARY_LINEWIDTH,
+    )
+    legend_items.append(boundary_handle)
+    legend_labels = labels + ["Boundary"]
     scatter_legend_size = 6
     for handle in legend_items:
         if hasattr(handle, "set_sizes"):
@@ -306,7 +363,7 @@ def main() -> None:
     parser.add_argument("--letter_spacing", type=int, default=DEFAULT_LETTER_SPACING, help="Letter spacing to filter.")
     parser.add_argument("--eps", type=float, default=DEFAULT_EPS, help="Epsilon for clipping V/G values.")
     parser.add_argument("--plot_dpi", type=int, default=DEFAULT_PLOT_DPI, help="DPI for saved plot.")
-    parser.add_argument("--scatter_ratio", type=float, default=0.25, help="Fraction of points to plot per resolution (0 < ratio <= 1).")
+    parser.add_argument("--scatter_ratio", type=float, default=1.0, help="Fraction of points to plot per resolution (0 < ratio <= 1).")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")

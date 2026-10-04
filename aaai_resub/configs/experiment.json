@@ -1,0 +1,38 @@
+{
+  "experiment_name": "law_guided_layout_intervention",
+  "baseline_layout": {
+    "font_size": 28,
+    "line_spacing": 6,
+    "letter_spacing": 0,
+    "character_width": 14.0533,
+    "character_height": 26.0
+  },
+  "intervention_layout": {
+    "name": "16_60_-1",
+    "font_size": 16,
+    "line_spacing": 60,
+    "letter_spacing": -1,
+    "character_width": 9.939516129032258,
+    "character_height": 15.0
+  },
+  "resolutions": [512, 640, 1024, 1280],
+  "selection": {
+    "include_stable": true,
+    "include_instability": true,
+    "exclude_collapse": true,
+    "stable_expected_edit_distance": 0.1,
+    "collapse_expected_edit_distance": 0.7
+  },
+  "model_summary_root": "data_analysis/em_fiting_res/shared_exceptw",
+  "rendering": {
+    "font_path": null,
+    "padding": 20,
+    "dpi": 300,
+    "ratio_min": 0.9,
+    "ratio_max": 1.1
+  },
+  "ocr": {
+    "conda_env": "deepseek-ocr",
+    "batch_size": 300
+  }
+}

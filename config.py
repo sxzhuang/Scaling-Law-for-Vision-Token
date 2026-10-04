@@ -7,7 +7,7 @@
 
 BASE_SIZE = 1024
 IMAGE_SIZE = 1024
-CROP_MODE = True
+CROP_MODE = False
 MIN_CROPS= 2
 MAX_CROPS= 6 # max:9; If your GPU memory is small, it is recommended to set it to 6.
 MAX_CONCURRENCY = 100 # If you have limited GPU memory, lower the concurrency count.

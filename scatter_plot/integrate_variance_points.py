@@ -13,11 +13,16 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from matplotlib.ticker import FuncFormatter
+from matplotlib.ticker import FormatStrFormatter, FuncFormatter
 
-FIG_WIDTH = 5.8
-FIG_HEIGHT = 3.0
-FONT_SIZE = 8
+# AAAI two-column papers use a 3.25 in column width
+# (7.0 in text width with a 0.5 in column gap).
+FIG_WIDTH = 3.25
+FIG_HEIGHT = 1.55
+FONT_SIZE = 7.5
+X_TICKS = [0, 10000, 20000]
+X_LIMIT = 25000
+Y_TICKS = [0.0, 0.25, 0.5, 0.75, 1.0]
 
 
 def parse_args() -> argparse.Namespace:
@@ -137,7 +142,7 @@ def main() -> None:
     ]
 
     fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=200)
-    fig.subplots_adjust(left=0.06, right=0.97, bottom=0.22, top=0.75, wspace=0.16)
+    fig.subplots_adjust(left=0.11, right=0.96, bottom=0.22, top=0.72, wspace=0.12)
 
     for idx, config in enumerate(configs):
         ax = axes[idx]
@@ -151,9 +156,9 @@ def main() -> None:
         ax.scatter(
             baseline_x,
             baseline_y,
-            color="#8fa6bf",
-            alpha=0.5,
-            s=3,
+            color="#B8B8B8",
+            alpha=0.45,
+            s=2,
             marker="o",
         )
 
@@ -164,7 +169,7 @@ def main() -> None:
             selected_y,
             color="#2CA02C",
             alpha=0.9,
-            s=5,
+            s=3.5,
             marker="s",
             edgecolor="white",
             linewidth=0.2,
@@ -178,21 +183,21 @@ def main() -> None:
             selected_min_y,
             color="#D62728",
             alpha=0.9,
-            s=5,
+            s=3.5,
             marker="^",
             edgecolor="white",
             linewidth=0.25,
             zorder=5,
         )
 
-        xmin, xmax = ax.get_xlim()
-        ymin, ymax = ax.get_ylim()
         hard_wall = config["hard_wall"]
         ax.axvline(hard_wall, color="#424242", linestyle="--", linewidth=0.3, zorder=0)
-        ax.axvspan(hard_wall, xmax, color="#d7ccc8", alpha=0.08, zorder=0)
-        ax.set_xlim(xmin, xmax)
+        ax.axvspan(hard_wall, X_LIMIT, color="#d7ccc8", alpha=0.08, zorder=0)
+        ax.set_xlim(0, X_LIMIT)
         ax.set_ylim(-0.02, 1.02)
-        ax.set_yticks([0.0, 0.25, 0.5, 0.75, 1.0])
+        ax.set_xticks(X_TICKS)
+        ax.set_yticks(Y_TICKS)
+        ax.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
 
         for key, orig_point in overlap_map.items():
             hv_point = selected_min_points.get(key)
@@ -207,15 +212,16 @@ def main() -> None:
                 arrowprops=dict(
                     arrowstyle="-",
                     color="#EFB852",
-                    lw=0.1,
+                    alpha=0.3,
+                    lw=0.06,
                     shrinkA=0,
                     shrinkB=0,
                 ),
             )
 
         ax.xaxis.set_major_formatter(FuncFormatter(format_k_ticks))
-        ax.tick_params(axis="x", length=2)
-        ax.tick_params(axis="y", length=2, pad=1)
+        ax.tick_params(axis="x", length=1.5, pad=1)
+        ax.tick_params(axis="y", length=1.5, pad=1)
         if idx == 0:
             ax.text(
                 -0.06,
@@ -226,12 +232,10 @@ def main() -> None:
                 va="bottom",
                 clip_on=False,
             )
-
-        if idx == len(configs) - 1:
-            ax.set_xlabel("TL")
-            ax.xaxis.set_label_coords(1.03, 0.0)
         else:
-            ax.set_xlabel("")
+            ax.tick_params(axis="y", left=False, labelleft=False)
+
+        ax.set_xlabel("")
 
         ax.text(
             0.5,
@@ -242,7 +246,7 @@ def main() -> None:
             va="bottom",
             clip_on=False,
         )
-        ax.grid(True, linestyle=":", linewidth=0.5, alpha=0.6)
+        ax.grid(False)
 
     legend_handles = [
         Line2D(
@@ -250,9 +254,9 @@ def main() -> None:
             [0],
             linestyle="none",
             marker="o",
-            markersize=4.2,
-            markerfacecolor="#8fa6bf",
-            markeredgecolor="#8fa6bf",
+            markersize=3.5,
+            markerfacecolor="#B8B8B8",
+            markeredgecolor="#B8B8B8",
             label="Unselected",
         ),
         Line2D(
@@ -260,7 +264,7 @@ def main() -> None:
             [0],
             linestyle="none",
             marker="s",
-            markersize=4.2,
+            markersize=3.5,
             markerfacecolor="#2CA02C",
             markeredgecolor="#2CA02C",
             label="Original",
@@ -270,7 +274,7 @@ def main() -> None:
             [0],
             linestyle="none",
             marker="^",
-            markersize=4.6,
+            markersize=3.8,
             markerfacecolor="#D62728",
             markeredgecolor="#D62728",
             label="Min-ED",
@@ -280,7 +284,7 @@ def main() -> None:
     fig.legend(
         handles=legend_handles,
         loc="upper center",
-        bbox_to_anchor=(0.5, 0.89),
+        bbox_to_anchor=(0.5, 0.92),
         ncol=3,
         frameon=False,
         columnspacing=0.8,
